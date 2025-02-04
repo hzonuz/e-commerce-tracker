@@ -68,7 +68,7 @@ services:
       - clickhouse
 
   hive-metastore:
-    image: apache/hive:latest
+    image: apache/hive:4.0.1
     container_name: hive-metastore
     volumes:
       - ./hive/hive-init.sql:/docker-entrypoint-initdb.d/hive-init.sql
