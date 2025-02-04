@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: wurstmeister/zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+    depends_on:
+      - zookeeper
+
+  spark:
+    image: bitnami/spark:latest
+    container_name: spark
+    volumes:
+      - ./spark:/app
+    command: >
+      bash -c "pip install kafka-python clickhouse-driver elasticsearch && 
+               spark-submit --master local[*] /app/process_kafka.py"
+    depends_on:
+      - kafka
+
+  hdfs-namenode:
+    image: apache/hadoop:latest
+    container_name: hdfs-namenode
+    environment:
+      - CLUSTER_NAME=hadoop
+    ports:
+      - "9870:9870"
+
+  hdfs-datanode:
+    image: apache/hadoop:latest
+    container_name: hdfs-datanode
+    depends_on:
+      - hdfs-namenode
+
+  clickhouse:
+    image: yandex/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./clickhouse/clickhouse-init.sql:/docker-entrypoint-initdb.d/clickhouse-init.sql
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.10.2
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+    ports:
+      - "9200:9200"
+
+  presto:
+    image: prestosql/presto:latest
+    container_name: presto
+    ports:
+      - "8080:8080"
+    depends_on:
+      - clickhouse
+
+  hive-metastore:
+    image: apache/hive:latest
+    container_name: hive-metastore
+    volumes:
+      - ./hive/hive-init.sql:/docker-entrypoint-initdb.d/hive-init.sql
+    depends_on:
+      - hdfs-namenode
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - clickhouse
+      - elasticsearch
