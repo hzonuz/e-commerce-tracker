@@ -36,12 +36,19 @@ services:
       - CLUSTER_NAME=hadoop
     ports:
       - "9870:9870"
+    volumes:
+      - ./hdfs/namenode:/hadoop/dfs/name
 
   hdfs-datanode:
     image: apache/hadoop:latest
     container_name: hdfs-datanode
     depends_on:
       - hdfs-namenode
+    environment:
+      - CLUSTER_NAME=hadoop
+    volumes:
+      - ./hdfs/datanode:/hadoop/dfs/data
+    
 
   clickhouse:
     image: yandex/clickhouse-server:latest
@@ -50,6 +57,8 @@ services:
       - "8123:8123"
     volumes:
       - ./clickhouse/clickhouse-init.sql:/docker-entrypoint-initdb.d/clickhouse-init.sql
+      - clickhouse:/var/lib/clickhouse
+
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.10.2
@@ -58,6 +67,10 @@ services:
       - discovery.type=single-node
     ports:
       - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - elasticsearch:/usr/share/elasticsearch/data
 
   presto:
     image: prestosql/presto:latest
@@ -82,6 +95,13 @@ services:
       - "3000:3000"
     volumes:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana:/var/lib/grafana
     depends_on:
       - clickhouse
       - elasticsearch
+
+
+volumes:
+  clickhouse:
+  elasticsearch:
+  grafana:
