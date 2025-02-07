@@ -1,4 +1,4 @@
-from kafka import KafkaProducer
+from confluent_kafka import Producer
 import json
 import random
 import time
@@ -8,11 +8,13 @@ from datetime import datetime
 fake = Faker()
 TOPIC = "user_clicks"
 
-# Kafka Producer Configuration
-producer = KafkaProducer(
-    bootstrap_servers="localhost:9092",
-    value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-)
+conf = {
+    "bootstrap.servers": "127.0.0.1:9092",
+    "client.id": "user-click-producer",
+}
+
+producer = Producer(conf)
+
 
 # Define Product Categories
 PRODUCTS = [
@@ -47,12 +49,25 @@ def generate_event():
     return event
 
 
-# Produce Events to Kafka
+def delivery_report(err, msg):
+    """Callback for successful or failed message delivery."""
+    if err is not None:
+        print(f"Message delivery failed: {err}")
+    else:
+        print(f"Message delivered to {msg.topic()} [{msg.partition()}]")
+
+
 def produce_events():
     while True:
         event = generate_event()
-        producer.send(TOPIC, value=event)
-        print(f"Sent: {event}")
+        print(event)
+        producer.produce(
+            TOPIC,
+            key=event["user_id"],  # Optional: Partitioning key
+            value=json.dumps(event),
+            callback=delivery_report,
+        )
+        producer.poll(0)  # Trigger callback
         time.sleep(random.uniform(0.1, 1))  # Simulate real-time events
 
 
