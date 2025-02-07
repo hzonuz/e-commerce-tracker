@@ -1,4 +1,4 @@
-CREATE TABLE user_clicks (
+CREATE TABLE IF NOT EXISTS user_clicks (
     user_id String,
     session_id String,
     event_type String,  -- 'click', 'view', 'add_to_cart', 'purchase'
@@ -9,7 +9,7 @@ CREATE TABLE user_clicks (
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, user_id);
 
-CREATE TABLE product_sales (
+CREATE TABLE IF NOT EXISTS product_sales (
     product_id String,
     category String,
     sales Int32,
@@ -18,7 +18,7 @@ CREATE TABLE product_sales (
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, product_id);
 
-CREATE TABLE purchase_predictions (
+CREATE TABLE IF NOT EXISTS purchase_predictions (
     product_id String,
     probability Float32,
     timestamp DateTime

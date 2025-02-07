@@ -1,4 +1,4 @@
-CREATE EXTERNAL TABLE user_clicks (
+CREATE EXTERNAL TABLE IF NOT EXISTS user_clicks (
     user_id STRING,
     session_id STRING,
     event_type STRING,
@@ -8,9 +8,9 @@ CREATE EXTERNAL TABLE user_clicks (
     referrer STRING
 )
 STORED AS PARQUET
-LOCATION 'hdfs://namenode:9000/data/user_clicks/';
+LOCATION 'hdfs://hdfs-namenode:9000/data/user_clicks/';
 
-CREATE EXTERNAL TABLE product_sales (
+CREATE EXTERNAL TABLE IF NOT EXISTS product_sales (
     product_id STRING,
     category STRING,
     sales INT,
@@ -18,12 +18,12 @@ CREATE EXTERNAL TABLE product_sales (
     timestamp TIMESTAMP
 )
 STORED AS PARQUET
-LOCATION 'hdfs://namenode:9000/data/product_sales/';
+LOCATION 'hdfs://hdfs-namenode:9000/data/product_sales/';
 
-CREATE EXTERNAL TABLE purchase_predictions (
+CREATE EXTERNAL TABLE IF NOT EXISTS purchase_predictions (
     product_id STRING,
     probability FLOAT,
     timestamp TIMESTAMP
 )
 STORED AS PARQUET
-LOCATION 'hdfs://namenode:9000/data/purchase_predictions/';
+LOCATION 'hdfs://hdfs-namenode:9000/data/purchase_predictions/';
