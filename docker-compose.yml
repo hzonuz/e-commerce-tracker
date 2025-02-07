@@ -6,6 +6,8 @@ services:
     container_name: zookeeper
     ports:
       - "2181:2181"
+    networks:
+      - bigdata
 
   kafka:
     image: wurstmeister/kafka:latest
@@ -13,24 +15,29 @@ services:
     ports:
       - "9092:9092"
     environment:
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
     depends_on:
       - zookeeper
-
+    networks:
+      - bigdata
   spark:
     image: bitnami/spark:latest
     container_name: spark
     volumes:
       - ./spark:/app
     command: >
-      bash -c "pip install kafka-python clickhouse-driver elasticsearch && 
-               spark-submit --master local[*] /app/process_kafka.py"
+      bash -c "pip install kafka-python clickhouse-driver elasticsearch &&
+             chmod +x /app/process_kafka.py &&
+             spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.apache.kafka:kafka-clients:3.3.0 --master local[*] /app/process_kafka.py"
     depends_on:
       - kafka
+    networks:
+      - bigdata
 
   hdfs-namenode:
-    image: apache/hadoop:latest
+    image: apache/hadoop:3.4.1
     container_name: hdfs-namenode
     environment:
       - CLUSTER_NAME=hadoop
@@ -38,9 +45,11 @@ services:
       - "9870:9870"
     volumes:
       - ./hdfs/namenode:/hadoop/dfs/name
+    networks:
+      - bigdata
 
   hdfs-datanode:
-    image: apache/hadoop:latest
+    image: apache/hadoop:3.4.1
     container_name: hdfs-datanode
     depends_on:
       - hdfs-namenode
@@ -48,6 +57,8 @@ services:
       - CLUSTER_NAME=hadoop
     volumes:
       - ./hdfs/datanode:/hadoop/dfs/data
+    networks:
+      - bigdata
     
 
   clickhouse:
@@ -55,9 +66,12 @@ services:
     container_name: clickhouse
     ports:
       - "8123:8123"
+      - "9000:9000"
     volumes:
       - ./clickhouse/clickhouse-init.sql:/docker-entrypoint-initdb.d/clickhouse-init.sql
       - clickhouse:/var/lib/clickhouse
+    networks:
+      - bigdata
 
 
   elasticsearch:
@@ -71,14 +85,18 @@ services:
     volumes:
       - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
       - elasticsearch:/usr/share/elasticsearch/data
+    networks:
+      - bigdata
 
   presto:
-    image: prestosql/presto:latest
+    image: prestodb/presto:latest
     container_name: presto
     ports:
       - "8080:8080"
     depends_on:
       - clickhouse
+    networks:
+      - bigdata
 
   hive-metastore:
     image: apache/hive:4.0.1
@@ -87,21 +105,46 @@ services:
       - ./hive/hive-init.sql:/docker-entrypoint-initdb.d/hive-init.sql
     depends_on:
       - hdfs-namenode
+    networks:
+      - bigdata
 
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
       - "3000:3000"
+
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
     volumes:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
       - grafana:/var/lib/grafana
     depends_on:
       - clickhouse
       - elasticsearch
+    networks:
+      - bigdata
 
+  superset:
+    image: apache/superset:latest
+    container_name: superset
+    ports:
+      - "8088:8088"
+    environment:
+      SUPERSET_ENV: development
+    volumes:
+      - ./superset/superset_config.py:/app/pythonpath/superset_config.py
+    depends_on:
+      - presto
+    networks:
+      - bigdata
 
 volumes:
   clickhouse:
   elasticsearch:
   grafana:
+
+networks:
+  bigdata:
+    driver: bridge
