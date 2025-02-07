@@ -1,0 +1,13 @@
+{
+  "mappings": {
+    "properties": {
+      "user_id": { "type": "keyword" },
+      "session_id": { "type": "keyword" },
+      "event_type": { "type": "keyword" },
+      "product_id": { "type": "keyword" },
+      "category": { "type": "keyword" },
+      "timestamp": { "type": "date" },
+      "referrer": { "type": "keyword" }
+    }
+  }
+}
