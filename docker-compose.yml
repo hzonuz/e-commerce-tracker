@@ -15,8 +15,10 @@ services:
     ports:
       - "9092:9092"
     environment:
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,DOCKER://kafka:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,DOCKER://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,DOCKER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
     depends_on:
       - zookeeper
@@ -27,6 +29,8 @@ services:
     container_name: spark
     volumes:
       - ./spark:/app
+    ports:
+      - "4040:4040"
     command: >
       bash -c "pip install kafka-python clickhouse-driver elasticsearch &&
              chmod +x /app/process_kafka.py &&
@@ -37,24 +41,27 @@ services:
       - bigdata
 
   hdfs-namenode:
-    image: apache/hadoop:3.4.1
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
     container_name: hdfs-namenode
     environment:
       - CLUSTER_NAME=hadoop
+      - CORE_CONF_fs_defaultFS=hdfs://hdfs-namenode:9000
     ports:
       - "9870:9870"
+      - "9000:9000"
     volumes:
       - ./hdfs/namenode:/hadoop/dfs/name
     networks:
       - bigdata
 
   hdfs-datanode:
-    image: apache/hadoop:3.4.1
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     container_name: hdfs-datanode
     depends_on:
       - hdfs-namenode
     environment:
       - CLUSTER_NAME=hadoop
+      - CORE_CONF_fs_defaultFS=hdfs://hdfs-namenode:9000
     volumes:
       - ./hdfs/datanode:/hadoop/dfs/data
     networks:
@@ -66,7 +73,7 @@ services:
     container_name: clickhouse
     ports:
       - "8123:8123"
-      - "9000:9000"
+      # - "9000:9000"
     volumes:
       - ./clickhouse/clickhouse-init.sql:/docker-entrypoint-initdb.d/clickhouse-init.sql
       - clickhouse:/var/lib/clickhouse
