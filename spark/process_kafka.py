@@ -1,8 +1,7 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, count, sum, avg, expr
-from pyspark.sql.types import StringType, IntegerType, FloatType, TimestampType
+from pyspark.sql.functions import col, count, expr, avg, current_timestamp
 
-# Initialize Spark
+
 spark = (
     SparkSession.builder.appName("PurchasePrediction")
     .config(
@@ -14,72 +13,113 @@ spark = (
     .getOrCreate()
 )
 
-# Read Kafka DataStream
 kafka_stream = (
     spark.readStream.format("kafka")
-    .option("kafka.bootstrap.servers", "kafka:9092")
+    .option("kafka.bootstrap.servers", "kafka:29092")
     .option("subscribe", "user_clicks")
     .load()
 )
 
-# Parse Kafka messages
-clicks_df = (
-    kafka_stream.selectExpr("CAST(value AS STRING)")
-    .alias("json")
-    .selectExpr(
-        "get_json_object(json, '$.user_id') AS user_id",
-        "get_json_object(json, '$.event_type') AS event_type",
-        "get_json_object(json, '$.product_id') AS product_id",
-        "CAST(get_json_object(json, '$.timestamp') AS TIMESTAMP) AS timestamp",
-    )
+######################
+
+clicks_df = kafka_stream.selectExpr("CAST(value AS STRING) as json").selectExpr(
+    "get_json_object(json, '$.user_id') AS user_id",
+    "get_json_object(json, '$.event_type') AS event_type",
+    "get_json_object(json, '$.product_id') AS product_id",
+    "get_json_object(json, '$.category') AS category",
+    "get_json_object(json, '$.referrer') AS referrer",
+    "CAST(get_json_object(json, '$.timestamp') AS TIMESTAMP) AS timestamp",
 )
 
-# Aggregate Click-to-Purchase Conversion Rate
+######################
+
 click_to_purchase = (
-    clicks_df.groupBy("product_id")
+    clicks_df.withWatermark("timestamp", "1 minutes")  # Add watermark
+    .groupBy("product_id", "timestamp")  # Include timestamp for historical tracking
     .agg(
         count(expr("event_type = 'click' OR NULL")).alias("clicks"),
         count(expr("event_type = 'purchase' OR NULL")).alias("purchases"),
     )
     .withColumn("probability", col("purchases") / col("clicks"))
+    .withColumn("processed_at", current_timestamp())  # Append processing timestamp
 )
 
-# Compute Sales Trend (Weighted Moving Average)
+
 sales_trend = (
-    clicks_df.filter(col("event_type") == "purchase")
-    .groupBy("product_id")
+    clicks_df.withWatermark("timestamp", "1 minutes")  # Add watermark
+    .filter(col("event_type") == "purchase")
+    .groupBy("product_id", "timestamp")
     .agg(count("*").alias("sales"), avg("timestamp").alias("trend_score"))
+    .withColumn("processed_at", current_timestamp())  # Append processing timestamp
 )
 
-# Write Predictions to ClickHouse
-click_to_purchase.writeStream.format("jdbc").option(
-    "url", "jdbc:clickhouse://clickhouse:8123"
-).option("dbtable", "purchase_predictions").option("user", "default").option(
-    "password", ""
-).option(
-    "checkpointLocation", "/tmp/spark-checkpoints/"
-).outputMode(
-    "complete"
-).start()
+######################
 
-# Write Trend Data to ClickHouse
-sales_trend.writeStream.format("jdbc").option(
-    "url", "jdbc:clickhouse://clickhouse:8123"
-).option("dbtable", "product_sales").option("user", "default").option(
-    "password", ""
-).option(
-    "checkpointLocation", "/tmp/spark-checkpoints/"
-).outputMode(
-    "complete"
-).start()
 
-# Write to Hive for Batch Processing
-click_to_purchase.writeStream.format("parquet").option(
-    "path", "hdfs://namenode:9000/data/purchase_predictions/"
-).option("checkpointLocation", "/tmp/hive-checkpoints/").outputMode("complete").start()
+def write_to_jdbc_in_batches(df, batch_id, table_name):
+    (
+        df.write.format("jdbc")
+        .option("url", "jdbc:clickhouse://clickhouse:8123")
+        .option("dbtable", table_name)
+        .option("user", "default")
+        .option("password", "")
+        .mode("append")
+        .save()
+    )
 
-sales_trend.writeStream.format("parquet").option(
-    "path", "hdfs://namenode:9000/data/product_sales/"
-).option("checkpointLocation", "/tmp/hive-checkpoints/").outputMode("complete").start()
+
+click_query = (
+    clicks_df.writeStream.foreachBatch(
+        lambda df, batch_id: write_to_jdbc_in_batches(df, batch_id, "user_clicks")
+    )
+    .option("checkpointLocation", "/tmp/spark-checkpoints/user_clicks")
+    .outputMode("append")
+    .start()
+)
+
+
+click_to_purchase_query = (
+    click_to_purchase.writeStream.foreachBatch(
+        lambda df, batch_id: write_to_jdbc_in_batches(
+            df, batch_id, "purchase_predictions"
+        )
+    )
+    .option("checkpointLocation", "/tmp/spark-checkpoints/purchase_predictions")
+    .outputMode(
+        "complete"
+    )  # Consider using "append" if appropriate for your aggregation
+    .start()
+)
+
+
+# Write the sales_trend streaming DataFrame using foreachBatch
+sales_trend_query = (
+    sales_trend.writeStream.foreachBatch(
+        lambda df, batch_id: write_to_jdbc_in_batches(df, batch_id, "product_sales")
+    )
+    .option("checkpointLocation", "/tmp/spark-checkpoints/product_sales")
+    .outputMode("complete")
+    .start()
+)
+
+######################
+
+
+def write_parquet_in_batches(df, batch_id, path):
+    df.write.mode("append").parquet(path)
+
+
+click_to_purchase.writeStream.foreachBatch(
+    lambda df, batch_id: write_parquet_in_batches(
+        df, batch_id, "hdfs://hdfs-namenode:9000/data/purchase_predictions/"
+    )
+).option("checkpointLocation", "/tmp/hive-checkpoints/purchase_predictions").start()
+
+
+sales_trend.writeStream.foreachBatch(
+    lambda df, batch_id: write_parquet_in_batches(
+        df, batch_id, "hdfs://hdfs-namenode:9000/data/product_sales/"
+    )
+).option("checkpointLocation", "/tmp/hive-checkpoints/product_sales").start()
 
 spark.streams.awaitAnyTermination()
